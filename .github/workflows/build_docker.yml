@@ -1,0 +1,97 @@
+### CI for build one docker
+# Need: 
+
+name: ci
+on: 
+  workflow_dispatch:
+    inputs:
+      tag_name:
+
+env:
+  IMAGE_NAME_CLIENT: nyamisty/et-docker-client
+  IMAGE_NAME_SERVER: nyamisty/et-docker-server
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: MisterTea/EternalTerminal
+          ref: ${{ github.event.inputs.tag_name }}
+          path: EternalTerminal
+
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      
+      # - name: Log in to the GHCR
+      #   uses: docker/login-action@v1
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Login to the DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      # - name: Determine tags
+      #   uses: haya14busa/action-cond@v1
+      #   id: tags
+      #   with:
+      #     cond: ${{ matrix.wine_branch == 'stable' && matrix.wine_arch == 'win32' }}
+      #     if_true:
+      #       ${{ env.IMAGE_NAME }}:true_tag1,
+      #       ${{ env.IMAGE_NAME }}:true_tag2,
+      #     if_false:
+      #       ${{ env.IMAGE_NAME }}:false_tag1,
+      #       ${{ env.IMAGE_NAME }}:false_tag2,
+
+      # - name: Extract metadata (tags, labels) for Docker
+      #   id: meta
+      #   uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      #   with:
+      #     images: ${{ env.IMAGE_NAME }}
+      #     flavor: |
+      #       latest=true
+
+      - name: Patch dockerfile
+        run: |
+          sed -i 's|git clone | git clone --branch ${{ github.event.inputs.tag_name }} |g' ./EternalTerminal/docker/Dockerfile.client
+          sed -i 's|COPY --from=base /usr/bin/etserver /usr/bin/etterminal|COPY --from=base /usr/bin/et|g' ./EternalTerminal/docker/Dockerfile.client
+          sed -i 's|git clone | git clone --branch ${{ github.event.inputs.tag_name }} |g' ./EternalTerminal/docker/Dockerfile.server
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: ./EternalTerminal/docker
+          file: ./EternalTerminal/docker/Dockerfile.client
+          push: true
+          tags: 
+            ${{ env.IMAGE_NAME_SERVER }}:latest,
+            ${{ env.IMAGE_NAME_CLIENT }}:${{ github.event.inputs.tag_name }},
+          # labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v2
+        with:
+          context: ./EternalTerminal/docker
+          file: ./EternalTerminal/docker/Dockerfile.server
+          push: true
+          tags: 
+            ${{ env.IMAGE_NAME_SERVER }}:latest,
+            ${{ env.IMAGE_NAME_SERVER }}:${{ github.event.inputs.tag_name }},
+          # labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
